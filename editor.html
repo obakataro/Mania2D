@@ -1,0 +1,723 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Mania2D - Lite Prototype</title>
+
+<!-- gif.js for GIF export -->
+<script src="https://unpkg.com/gif.js.optimized/dist/gif.worker.js"></script>
+<script src="https://unpkg.com/gif.js.optimized/dist/gif.js"></script>
+
+<style>
+  :root{
+    --bg:#f6f7fb; --panel:#fff; --muted:#666; --accent:#7c5cff;
+    --glass: rgba(255,255,255,0.6);
+  }
+  [data-theme="dark"]{
+    --bg:#111216; --panel:#141519; --muted:#aaaaaa; --accent:#9a83ff; --glass: rgba(0,0,0,0.5);
+  }
+
+  html,body{height:100%; margin:0; font-family:Inter, system-ui, "Hiragino Kaku Gothic ProN", "メイリオ", sans-serif; background:var(--bg); color:var(--muted);}
+  .app {display:grid; grid-template-columns:220px 1fr 260px; grid-template-rows: 1fr 140px; gap:10px; padding:10px; height:100vh; box-sizing:border-box;}
+  .panel {background:var(--panel); border-radius:10px; padding:10px; box-shadow: 0 6px 18px rgba(10,10,20,0.06);}
+  .toolbar {display:flex; flex-direction:column; gap:8px;}
+  button, select, input[type="file"]{display:block; width:100%;}
+  #canvasWrap{position:relative; background:linear-gradient(180deg, rgba(0,0,0,0.02), transparent); overflow:hidden;}
+  #mainCanvas{background:transparent; display:block; margin:0 auto; max-width:100%; max-height:100%;}
+  .layerList{max-height:45vh; overflow:auto;}
+  .timeline{grid-column:1/4; display:flex; gap:8px; align-items:center;}
+  #timelinePanel{flex:1; min-height:120px; display:flex; flex-direction:column;}
+  .timelineCanvas{background:var(--panel); height:120px; border-radius:8px; padding:8px;}
+  .controls{display:flex; gap:6px; align-items:center;}
+  .row{display:flex; gap:6px; align-items:center;}
+  .muted{color:var(--muted);}
+  .kbd{background:var(--glass); padding:4px 8px; border-radius:6px;}
+  .toggle{display:flex; gap:6px; align-items:center;}
+  .small{font-size:13px;}
+  #plugins{max-height:40vh; overflow:auto;}
+</style>
+</head>
+<body data-theme="dark">
+<div class="app">
+
+  <!-- LEFT: Tools -->
+  <div class="panel toolbar">
+    <h3>Tools</h3>
+    <input id="fileInput" type="file" accept="image/*" />
+    <button id="addRect">矩形</button>
+    <button id="addCircle">円</button>
+    <button id="addLine">線</button>
+    <button id="meshMode">メッシュ編集</button>
+    <button id="animMode">アニメ編集</button>
+    <button id="exportGif">GIF書き出し</button>
+    <label class="toggle"><input id="darkToggle" type="checkbox" /> ダークモード</label>
+    <hr/>
+    <div class="small muted">Shortcuts</div>
+    <div class="small"><span class="kbd">Space</span> 再生 <span class="kbd">Ctrl+S</span> 保存 <span class="kbd">Ctrl+Z</span> Undo</div>
+    <hr/>
+    <h4>Plugins</h4>
+    <div id="plugins" class="small"></div>
+  </div>
+
+  <!-- CENTER: Canvas -->
+  <div id="canvasWrap" class="panel" style="display:flex;justify-content:center;align-items:center;">
+    <canvas id="mainCanvas" width="960" height="540"></canvas>
+  </div>
+
+  <!-- RIGHT: Layers & Properties -->
+  <div class="panel">
+    <h3>Layers</h3>
+    <div class="layerList" id="layerList"></div>
+    <hr/>
+    <h4>Properties</h4>
+    <div id="props" class="small"></div>
+    <hr/>
+    <h4>Audio</h4>
+    <input id="audioInput" type="file" accept="audio/*" />
+    <canvas id="waveCanvas" width="240" height="80" style="width:100%;border-radius:6px"></canvas>
+  </div>
+
+  <!-- TIMELINE -->
+  <div id="timelinePanel" class="panel timelineCanvas">
+    <div class="controls">
+      <button id="playBtn">▶︎</button>
+      <button id="stopBtn">■</button>
+      <div style="flex:1"></div>
+      <label>FPS <select id="fps"><option>12</option><option selected>24</option><option>30</option></select></label>
+      <label>Duration <input id="duration" type="number" value="3" style="width:60px" /></label>
+    </div>
+    <canvas id="timelineCanvasEl" height="80" style="width:100%;border-radius:6px;margin-top:8px"></canvas>
+    <div class="small muted" style="margin-top:6px">クリックでキーフレーム追加。右クリックで補間選択。</div>
+  </div>
+
+</div>
+
+<script>
+/* =========================
+   シンプルな内部データ構造とレンダラ
+   - Layer: {id,name,type,image,mesh,visible,transform}
+   - Mesh: gridSizeX/Y, points[sourceIdx]= {x,y} (normalized local)
+   - Keyframes: per layer per prop: [{time,val,interp,bezier}]
+   ========================= */
+
+const canvas = document.getElementById('mainCanvas');
+const ctx = canvas.getContext('2d', {alpha:true});
+const timelineCanvas = document.getElementById('timelineCanvasEl');
+const tctx = timelineCanvas.getContext('2d');
+const waveCanvas = document.getElementById('waveCanvas');
+const wctx = waveCanvas.getContext('2d');
+
+let app = {
+  layers: [], // top->bottom in array (0 = bottom)
+  nextId: 1,
+  time: 0,
+  duration: 3,
+  fps: 24,
+  playing: false,
+  selectedLayerId: null,
+  mode: 'edit', // edit | mesh | anim
+  undoStack: [],
+  redoStack: [],
+  plugins: []
+};
+
+// --------------------- helpers ---------------------
+function uid(){ return app.nextId++; }
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+function now(){ return Date.now()/1000; }
+
+// --------------------- Layer API ---------------------
+function addImageLayer(img){
+  const id = uid();
+  const layer = {
+    id, name: 'Image'+id, type:'image', image:img, x: canvas.width/2, y: canvas.height/2,
+    w: img.width, h: img.height,
+    sx:0, sy:0, sw:img.width, sh:img.height,
+    visible:true, opacity:1, rotation:0, scaleX:1, scaleY:1,
+    mesh: createDefaultMesh(4,4), // 4x4 grid local coords
+    anchors: {}, keyframes: {}
+  };
+  app.layers.push(layer);
+  selectLayer(id);
+  refreshLayerList();
+}
+function createRectLayer(w=100,h=100){
+  const id = uid();
+  const layer = {
+    id, name: 'Rect'+id, type:'rect', x: canvas.width/2, y: canvas.height/2,
+    w, h, color:'#ff9aa2', visible:true, opacity:1, rotation:0, scaleX:1, scaleY:1,
+    mesh: createDefaultMesh(2,2), keyframes:{}
+  };
+  app.layers.push(layer);
+  selectLayer(id); refreshLayerList();
+}
+function createCircleLayer(r=50){
+  const id = uid();
+  const layer = {id, name:'Circle'+id, type:'circle', x:canvas.width/2, y:canvas.height/2, r, color:'#9ae6b4', visible:true, opacity:1, keyframes:{}};
+  app.layers.push(layer); selectLayer(id); refreshLayerList();
+}
+function createLineLayer(x1,y1,x2,y2){
+  const id = uid();
+  const layer = {id, name:'Line'+id, type:'line', x1,y1,x2,y2, color:'#88a', width:4, visible:true, keyframes:{}};
+  app.layers.push(layer); selectLayer(id); refreshLayerList();
+}
+
+function selectLayer(id){
+  app.selectedLayerId = id;
+  renderProps();
+}
+
+// --------------------- Mesh ---------------------
+function createDefaultMesh(cols,rows){
+  // normalized coordinates 0..1 in local layer space
+  const pts = [];
+  for(let r=0;r<=rows;r++){
+    for(let c=0;c<=cols;c++){
+      pts.push({u:c/cols, v:r/rows, x:c/cols, y:r/rows});
+    }
+  }
+  return {cols, rows, points:pts};
+}
+
+// --------------------- Keyframes ---------------------
+function addKeyframe(layerId, prop, time, value, interp='linear', bezier=null){
+  const layer = app.layers.find(l=>l.id===layerId);
+  if(!layer) return;
+  layer.keyframes[prop] = layer.keyframes[prop]||[];
+  layer.keyframes[prop].push({time, value, interp, bezier});
+  layer.keyframes[prop].sort((a,b)=>a.time-b.time);
+}
+
+function evaluateProperty(layer, prop, t){
+  const kf = (layer.keyframes && layer.keyframes[prop]) || [];
+  if(kf.length===0) return layer[prop]; // default to raw
+  // before first
+  if(t <= kf[0].time) return kf[0].value;
+  if(t >= kf[kf.length-1].time) return kf[kf.length-1].value;
+  // find interval
+  let i=0; while(!(kf[i].time<=t && kf[i+1].time>=t)) i++;
+  const a=kf[i], b=kf[i+1];
+  const local = (t-a.time)/(b.time-a.time);
+  // interpolation
+  if(b.interp==='linear') return lerp(a.value,b.value,local);
+  if(b.interp==='easeIn') return lerp(a.value,b.value, easeIn(local));
+  if(b.interp==='easeOut') return lerp(a.value,b.value, easeOut(local));
+  if(b.interp==='bezier' && b.bezier) {
+    const y = cubicBezierAt(local, b.bezier); // using bezier handle array
+    return lerp(a.value,b.value,y);
+  }
+  return lerp(a.value,b.value,local);
+}
+
+function lerp(a,b,t){ return a + (b-a)*t; }
+function easeIn(t){ return t*t; }
+function easeOut(t){ return 1 - Math.pow(1-t,2); }
+
+// cubic Bezier: bezier = [x1,y1,x2,y2] (we map t->y approx)
+function cubicBezierAt(t, bezier){
+  // use De Casteljau for y only by approximating parameter with t
+  const [x1,y1,x2,y2] = bezier;
+  // approximate using Bernstein
+  const cx = 3*x1, bx = 3*(x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3*y1, by = 3*(y2 - y1) - cy, ay = 1 - cy - by;
+  const x = ((ax*t+bx)*t+cx)*t;
+  const y = ((ay*t+by)*t+cy)*t;
+  return y; // treat t as progress
+}
+
+/* =========================
+   Rendering pipeline
+   - renderLoop draws layers in order (0 bottom -> last top)
+   - For each layer, evaluate animated props at current time
+   - Apply camera transform
+   ========================= */
+
+const camera = {x:0,y:0,zoom:1,rotation:0};
+
+// resize canvas to parent
+function fitCanvas(){
+  const wrap = document.getElementById('canvasWrap');
+  const rect = wrap.getBoundingClientRect();
+  const scale = Math.min(rect.width/960, rect.height/540);
+  canvas.style.width = Math.round(960*scale)+'px';
+  canvas.style.height = Math.round(540*scale)+'px';
+}
+window.addEventListener('resize', fitCanvas);
+fitCanvas();
+
+// core draw per frame
+function renderFrame(){
+  // clear
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  // camera transform
+  ctx.save();
+  ctx.translate(canvas.width/2, canvas.height/2);
+  ctx.scale(camera.zoom, camera.zoom);
+  ctx.rotate(camera.rotation);
+  ctx.translate(-canvas.width/2 - camera.x, -canvas.height/2 - camera.y);
+
+  // draw layers bottom->top
+  for(let i=0;i<app.layers.length;i++){
+    const layer = app.layers[i];
+    if(!layer.visible) continue;
+
+    // evaluate animated props if in anim mode
+    if(app.mode === 'anim'){
+      // for common props: x,y,rotation,scaleX,scaleY,opacity
+      ['x','y','rotation','scaleX','scaleY','opacity'].forEach(p=>{
+        if(layer.keyframes && layer.keyframes[p]) layer[p] = evaluateProperty(layer, p, app.time);
+      });
+    }
+
+    ctx.globalAlpha = layer.opacity ?? 1;
+
+    // draw by type
+    if(layer.type === 'image'){
+      drawImageMesh(ctx, layer);
+    } else if(layer.type === 'rect'){
+      ctx.save();
+      ctx.translate(layer.x, layer.y);
+      ctx.rotate(layer.rotation);
+      ctx.scale(layer.scaleX, layer.scaleY);
+      ctx.fillStyle = layer.color;
+      ctx.fillRect(-layer.w/2, -layer.h/2, layer.w, layer.h);
+      ctx.restore();
+    } else if(layer.type === 'circle'){
+      ctx.save();
+      ctx.fillStyle = layer.color;
+      ctx.beginPath();
+      ctx.arc(layer.x, layer.y, layer.r, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    } else if(layer.type === 'line'){
+      ctx.save();
+      ctx.strokeStyle = layer.color;
+      ctx.lineWidth = layer.width;
+      ctx.beginPath();
+      ctx.moveTo(layer.x1, layer.y1);
+      ctx.lineTo(layer.x2, layer.y2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  ctx.restore();
+
+  // overlay: selection bounds / mesh points if needed
+  if(app.mode === 'mesh' && app.selectedLayerId){
+    const layer = app.layers.find(l=>l.id===app.selectedLayerId);
+    if(layer){
+      drawMeshOverlay(layer);
+    }
+  }
+
+  // timeline draw
+  drawTimeline();
+}
+
+// draw image with mesh (grid of quads, draw each quad with affine transform)
+function drawImageMesh(ctxLocal, layer){
+  const mesh = layer.mesh;
+  const cols = mesh.cols, rows = mesh.rows;
+  const img = layer.image;
+  const lw = layer.w, lh = layer.h;
+  // source cell size
+  const sw = img.width/cols, sh = img.height/rows;
+
+  // for each cell, compute source quad and dest quad in world coords
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      const idxTL = r*(cols+1)+c;
+      const idxTR = idxTL+1;
+      const idxBL = (r+1)*(cols+1)+c;
+      const idxBR = idxBL+1;
+      const sTL = mesh.points[idxTL], sTR = mesh.points[idxTR], sBL = mesh.points[idxBL], sBR = mesh.points[idxBR];
+
+      // source rectangle (px)
+      const sx = c*sw, sy = r*sh, sW = sw, sH = sh;
+
+      // compute destination positions in pixels
+      const destTL = localToWorld(layer, sTL.x*sW/sW, sTL.y*sH/sh, sTL); // we'll compute differently
+      // Instead calculate dest coordinates by mapping normalized to layer local rect:
+      const toPx = (pt) => {
+        const lx = (pt.x - 0.5)*layer.w + layer.x;
+        const ly = (pt.y - 0.5)*layer.h + layer.y;
+        return {x:lx, y:ly};
+      };
+      const dTL = toPx(sTL), dTR = toPx(sTR), dBL = toPx(sBL), dBR = toPx(sBR);
+
+      // approximate by splitting quad into two triangles and draw each using transform
+      // draw triangle 1: TL, BL, TR mapped from source triangle (sx,sy), (sx,sy+sh), (sx+sw,sy)
+      drawTexturedTriangle(ctxLocal, img, sx, sy, sx, sy+sh, sx+sw, sy, dTL, dBL, dTR);
+      // triangle 2: BR, TR, BL
+      drawTexturedTriangle(ctxLocal, img, sx+sw, sy+sh, sx+sw, sy, sx, sy+sh, dBR, dTR, dBL);
+    }
+  }
+}
+
+// draw textured triangle by affine mapping (approx)
+function drawTexturedTriangle(ctxLocal, img, sx1,sy1, sx2,sy2, sx3,sy3, d1, d2, d3){
+  // compute affine transform that maps (sx1,sy1),(sx2,sy2),(sx3,sy3) -> d1,d2,d3
+  // Solve matrix A * [u v 1]^T = [x y]^T where A is 2x3
+  const denom = ( (sx1*(sy2-sy3)+sx2*(sy3-sy1)+sx3*(sy1-sy2)) );
+  if(Math.abs(denom) < 1e-6) return;
+  const a11 = ((d1.x*(sy2-sy3)+d2.x*(sy3-sy1)+d3.x*(sy1-sy2)))/denom;
+  const a12 = ((d1.x*(sx3-sx2)+d2.x*(sx1-sx3)+d3.x*(sx2-sx1)))/denom;
+  const a13 = ((d1.x*(sx2*sy3-sx3*sy2)+d2.x*(sx3*sy1-sx1*sy3)+d3.x*(sx1*sy2-sx2*sy1)))/denom;
+
+  const a21 = ((d1.y*(sy2-sy3)+d2.y*(sy3-sy1)+d3.y*(sy1-sy2)))/denom;
+  const a22 = ((d1.y*(sx3-sx2)+d2.y*(sx1-sx3)+d3.y*(sx2-sx1)))/denom;
+  const a23 = ((d1.y*(sx2*sy3-sx3*sy2)+d2.y*(sx3*sy1-sx1*sy3)+d3.y*(sx1*sy2-sx2*sy1)))/denom;
+
+  ctxLocal.save();
+  // clip to destination triangle
+  ctxLocal.beginPath();
+  ctxLocal.moveTo(d1.x, d1.y);
+  ctxLocal.lineTo(d2.x, d2.y);
+  ctxLocal.lineTo(d3.x, d3.y);
+  ctxLocal.closePath();
+  ctxLocal.clip();
+
+  // set transform such that source coords map to destination space
+  // We need to map source texture onto canvas: use setTransform with matrix from src->dst
+  // Because drawImage uses source space scaling automatically, compute transform that maps source pixel coords to dest coords:
+  ctxLocal.setTransform(a11, a21, a12, a22, a13, a23);
+
+  // draw the source triangle portion -- draw full image but clipped/transform will project it
+  ctxLocal.drawImage(img, 0, 0);
+  ctxLocal.restore();
+}
+
+/* =========================
+   Mesh overlay + interaction
+   ========================= */
+function drawMeshOverlay(layer){
+  const mesh = layer.mesh;
+  const cols = mesh.cols, rows = mesh.rows;
+  ctx.save(); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(200,120,255,0.8)';
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  // draw points
+  mesh.points.forEach(p=>{
+    const px = (p.x - 0.5)*layer.w + layer.x;
+    const py = (p.y - 0.5)*layer.h + layer.y;
+    ctx.beginPath(); ctx.arc(px,py,4,0,Math.PI*2); ctx.fill(); ctx.stroke();
+  });
+  ctx.restore();
+}
+
+// interaction state
+let drag = null;
+canvas.addEventListener('mousedown', (e)=>{
+  const pos = getMousePos(e);
+  if(app.mode==='mesh' && app.selectedLayerId){
+    const layer = app.layers.find(l=>l.id===app.selectedLayerId);
+    // find nearest control point
+    let best = null; let dist=Infinity;
+    layer.mesh.points.forEach((p,idx)=>{
+      const px = (p.x - 0.5)*layer.w + layer.x;
+      const py = (p.y - 0.5)*layer.h + layer.y;
+      const d = Math.hypot(px-pos.x, py-pos.y);
+      if(d<20 && d<dist){ dist=d; best={idx,p}; }
+    });
+    if(best){ drag = {type:'mesh', layerId:layer.id, idx:best.idx, ox:pos.x, oy:pos.y}; return; }
+  }
+  // generic layer select by bounding box
+  for(let i=app.layers.length-1;i>=0;i--){
+    const layer=app.layers[i];
+    if(!layer) continue;
+    // bounding simple box
+    let bx,by,bw,bh;
+    if(layer.type==='image' || layer.type==='rect'){
+      bx = layer.x - (layer.w/2); by = layer.y - (layer.h/2); bw = layer.w; bh = layer.h;
+    } else if(layer.type==='circle'){ bx=layer.x-layer.r; by=layer.y-layer.r; bw=layer.r*2; bh=layer.r*2; }
+    else continue;
+    if(pos.x>=bx && pos.x<=bx+bw && pos.y>=by && pos.y<=by+bh){
+      selectLayer(layer.id); drag = {type:'move', layerId:layer.id, ox:pos.x, oy:pos.y, lx:layer.x, ly:layer.y}; return;
+    }
+  }
+});
+
+canvas.addEventListener('mousemove', (e)=>{
+  if(!drag) return;
+  const pos = getMousePos(e);
+  const layer = app.layers.find(l=>l.id===drag.layerId);
+  if(!layer) return;
+  if(drag.type==='move'){ layer.x = drag.lx + (pos.x - drag.ox); layer.y = drag.ly + (pos.y - drag.oy); renderFrame(); }
+  if(drag.type==='mesh'){
+    const p = layer.mesh.points[drag.idx];
+    // convert pos to normalized local
+    const nx = (pos.x - layer.x)/layer.w + 0.5;
+    const ny = (pos.y - layer.y)/layer.h + 0.5;
+    p.x = clamp(nx, -1, 2); p.y = clamp(ny, -1, 2);
+    renderFrame();
+  }
+});
+window.addEventListener('mouseup', ()=>{ drag = null; });
+
+function getMousePos(e){
+  const rect = canvas.getBoundingClientRect();
+  const sx = canvas.width / rect.width, sy = canvas.height / rect.height;
+  return { x: (e.clientX - rect.left)*sx, y: (e.clientY - rect.top)*sy };
+}
+
+/* =========================
+   Timeline interactions
+   ========================= */
+document.getElementById('fps').addEventListener('change', (e)=> app.fps = parseInt(e.target.value));
+document.getElementById('duration').addEventListener('change', (e)=> app.duration = parseFloat(e.target.value));
+document.getElementById('playBtn').addEventListener('click', ()=> togglePlay(true));
+document.getElementById('stopBtn').addEventListener('click', ()=> stopPlayback());
+
+timelineCanvas.addEventListener('click', (e)=>{
+  const rect = timelineCanvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) / rect.width;
+  const t = x * app.duration;
+  // add keyframe for selected layer at time t for position x,y
+  if(app.selectedLayerId){
+    const layer = app.layers.find(l=>l.id===app.selectedLayerId);
+    addKeyframe(layer.id, 'x', t, layer.x, 'linear');
+    addKeyframe(layer.id, 'y', t, layer.y, 'linear');
+  }
+  drawTimeline();
+});
+timelineCanvas.addEventListener('contextmenu', (e)=>{ e.preventDefault(); // set interpolation
+  if(app.selectedLayerId){
+    const t = (e.clientX - timelineCanvas.getBoundingClientRect().left)/timelineCanvas.width*app.duration;
+    const layer = app.layers.find(l=>l.id===app.selectedLayerId);
+    // find nearest keyframe
+    for(const prop in layer.keyframes){
+      layer.keyframes[prop].forEach(k=>{
+        if(Math.abs(k.time - t) < 0.2){ // open a simple prompt
+          const mode = prompt('補間タイプ: linear / easeIn / easeOut / bezier', k.interp || 'linear');
+          if(mode==='bezier'){ const s = prompt('bezier x1,y1,x2,y2 (0..1) e.g. 0.25,0.1,0.25,1'); k.interp='bezier'; k.bezier = s.split(',').map(Number); }
+          else k.interp = mode;
+        }
+      });
+    }
+  }
+});
+
+// draw timeline visuals
+function drawTimeline(){
+  const w = timelineCanvas.width = timelineCanvas.clientWidth * devicePixelRatio;
+  const h = timelineCanvas.height = 80*devicePixelRatio;
+  tctx.clearRect(0,0,w,h);
+  tctx.scale(devicePixelRatio, devicePixelRatio);
+  // background
+  tctx.fillStyle = 'rgba(0,0,0,0.03)'; tctx.fillRect(0,0, timelineCanvas.clientWidth, 80);
+  // draw time ruler
+  const steps = 10;
+  for(let i=0;i<=steps;i++){
+    const x = (i/steps)*timelineCanvas.clientWidth;
+    tctx.fillStyle = '#999';
+    tctx.fillRect(x, 0, 1, 10);
+    tctx.fillText((i/steps*app.duration).toFixed(2), x+2, 20);
+  }
+  // draw layers as rows
+  const rowH = 16;
+  app.layers.forEach((layer, idx)=>{
+    const y = 28 + idx*rowH;
+    tctx.fillStyle = 'rgba(100,100,120,0.08)';
+    tctx.fillRect(0, y, timelineCanvas.clientWidth, rowH-2);
+    // draw keyframes
+    if(layer.keyframes){
+      for(const prop in layer.keyframes){
+        layer.keyframes[prop].forEach(k=>{
+          const x = (k.time/app.duration)*timelineCanvas.clientWidth;
+          tctx.fillStyle = k.interp==='linear' ? '#66c' : '#c66';
+          tctx.beginPath(); tctx.arc(x, y+rowH/2, 4, 0, Math.PI*2); tctx.fill();
+        });
+      }
+    }
+  });
+  // playhead
+  const px = (app.time/app.duration)*timelineCanvas.clientWidth;
+  tctx.strokeStyle = '#f55'; tctx.beginPath(); tctx.moveTo(px,0); tctx.lineTo(px, timelineCanvas.clientHeight/devicePixelRatio); tctx.stroke();
+  tctx.setTransform(1,0,0,1,0,0); // reset scale
+}
+
+/* =========================
+   Playback control
+   ========================= */
+let lastTick = now();
+function togglePlay(forcePlay=false){
+  app.playing = forcePlay || !app.playing;
+  if(app.playing) lastTick = now();
+}
+function stopPlayback(){ app.playing=false; app.time=0; renderFrame(); }
+function playbackTick(){
+  const t = now();
+  const dt = t - lastTick;
+  lastTick = t;
+  if(app.playing){
+    app.time += dt;
+    if(app.time > app.duration) { app.time = 0; app.playing=false; } // stop at end
+  }
+  // render
+  renderFrame();
+  requestAnimationFrame(playbackTick);
+}
+playbackTick();
+
+/* =========================
+   Export GIF (PNG frames -> gif.js)
+   ========================= */
+document.getElementById('exportGif').addEventListener('click', async ()=>{
+  const fps = app.fps;
+  const totalFrames = Math.ceil(app.duration * fps);
+  const gif = new GIF({ workers:2, quality:10 });
+  const tmpCanvas = document.createElement('canvas'); tmpCanvas.width=canvas.width; tmpCanvas.height=canvas.height;
+  const tctx2 = tmpCanvas.getContext('2d');
+  const oldTime = app.time, oldPlaying = app.playing;
+  app.playing = false;
+  for(let i=0;i<totalFrames;i++){
+    app.time = (i/totalFrames)*app.duration;
+    renderFrame();
+    // draw to tmp and add
+    tctx2.clearRect(0,0,tmpCanvas.width,tmpCanvas.height);
+    tctx2.drawImage(canvas,0,0);
+    gif.addFrame(tctx2, {copy:true, delay:1000/fps});
+    // progress (simple)
+    console.log(`frame ${i+1}/${totalFrames}`);
+    await new Promise(r=>setTimeout(r,1));
+  }
+  gif.on('finished', function(blob){
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download='export.gif'; a.click();
+  });
+  gif.render();
+  app.time = oldTime; app.playing = oldPlaying;
+});
+
+/* =========================
+   Layer list & props UI
+   ========================= */
+function refreshLayerList(){
+  const el = document.getElementById('layerList');
+  el.innerHTML = '';
+  app.layers.slice().reverse().forEach(layer=>{
+    const d = document.createElement('div'); d.style.display='flex'; d.style.justifyContent='space-between'; d.style.alignItems='center';
+    d.innerHTML = `<div style="flex:1"><strong>${layer.name}</strong> <div class="muted small">${layer.type}</div></div>
+      <div style="display:flex;gap:6px"><button data-id="${layer.id}" class="selBtn">選択</button><button data-id="${layer.id}" class="delBtn">×</button></div>`;
+    el.appendChild(d);
+  });
+  Array.from(el.querySelectorAll('.selBtn')).forEach(b=>b.addEventListener('click', (e)=>{ selectLayer(parseInt(e.target.dataset.id)); }));
+  Array.from(el.querySelectorAll('.delBtn')).forEach(b=>b.addEventListener('click', (e)=>{ const id=parseInt(e.target.dataset.id); app.layers=app.layers.filter(l=>l.id!==id); refreshLayerList(); }));
+  renderProps();
+}
+
+function renderProps(){
+  const p = document.getElementById('props'); p.innerHTML='';
+  const layer = app.layers.find(l=>l.id===app.selectedLayerId);
+  if(!layer){ p.innerHTML = '<div class="muted">レイヤーが選択されていません</div>'; return; }
+  // basic props
+  p.innerHTML += `<div>名前: <input id="nameEdit" value="${layer.name}" /></div>`;
+  p.innerHTML += `<div>X: <input id="px" value="${Math.round(layer.x)}" style="width:80px" /></div>`;
+  p.innerHTML += `<div>Y: <input id="py" value="${Math.round(layer.y)}" style="width:80px" /></div>`;
+  p.innerHTML += `<div>Opacity: <input id="op" type="range" min="0" max="1" step="0.01" value="${layer.opacity||1}" /></div>`;
+  if(layer.type==='image') p.innerHTML += `<div>Mesh: ${layer.mesh.cols}x${layer.mesh.rows}</div>`;
+  // attach events
+  document.getElementById('nameEdit').addEventListener('change', (e)=>{ layer.name=e.target.value; refreshLayerList(); });
+  document.getElementById('px').addEventListener('change', (e)=>{ layer.x=parseFloat(e.target.value); renderFrame(); });
+  document.getElementById('py').addEventListener('change', (e)=>{ layer.y=parseFloat(e.target.value); renderFrame(); });
+  document.getElementById('op').addEventListener('input', (e)=>{ layer.opacity=parseFloat(e.target.value); renderFrame(); });
+}
+
+/* =========================
+   Image upload
+   ========================= */
+document.getElementById('fileInput').addEventListener('change', async (e)=>{
+  const f = e.target.files[0];
+  if(!f) return;
+  const img = new Image(); img.onload = ()=> addImageLayer(img); img.src = URL.createObjectURL(f);
+});
+
+/* =========================
+   Audio / Waveform
+   ========================= */
+let audioCtx, audioSource, analyser;
+document.getElementById('audioInput').addEventListener('change', async (e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  const data = await f.arrayBuffer();
+  if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const buf = await audioCtx.decodeAudioData(data.slice(0));
+  if(audioSource) audioSource.disconnect();
+  audioSource = audioCtx.createBufferSource(); audioSource.buffer = buf;
+  analyser = audioCtx.createAnalyser(); analyser.fftSize = 2048;
+  audioSource.connect(analyser); analyser.connect(audioCtx.destination);
+  audioSource.start();
+  drawWaveformLoop();
+});
+function drawWaveformLoop(){
+  if(!analyser) return;
+  const data = new Uint8Array(analyser.fftSize);
+  analyser.getByteTimeDomainData(data);
+  wctx.clearRect(0,0,waveCanvas.width, waveCanvas.height);
+  wctx.beginPath();
+  const step = waveCanvas.width / data.length;
+  for(let i=0;i<data.length;i++){
+    const v = data[i]/128.0; const y = (v*waveCanvas.height/2);
+    if(i===0) wctx.moveTo(i*step, y); else wctx.lineTo(i*step, y);
+  }
+  wctx.strokeStyle = '#8fb';
+  wctx.stroke();
+  requestAnimationFrame(drawWaveformLoop);
+}
+
+/* =========================
+   Dark mode toggle
+   ========================= */
+document.getElementById('darkToggle').addEventListener('change', (e)=>{
+  document.body.setAttribute('data-theme', e.target.checked ? 'dark' : 'light');
+});
+
+/* =========================
+   Shortcuts
+   ========================= */
+window.addEventListener('keydown', (e)=>{
+  if(e.code === 'Space'){ e.preventDefault(); togglePlay(); }
+  if((e.ctrlKey||e.metaKey) && e.key==='s'){ e.preventDefault(); alert('保存 (デモ)'); }
+  if((e.ctrlKey||e.metaKey) && e.key==='z'){ e.preventDefault(); alert('Undo (簡易)'); }
+});
+
+/* =========================
+   Simple plugin API
+   ========================= */
+app.registerPlugin = function(manifest){
+  app.plugins.push(manifest);
+  const pdiv = document.getElementById('plugins');
+  const btn = document.createElement('button'); btn.textContent = manifest.name; btn.addEventListener('click', ()=> manifest.run(app));
+  pdiv.appendChild(btn);
+};
+app.registerPlugin({name:'サンプル: ランダムシェイク', run: (ctx)=> {
+  // apply tiny shake to camera for 0.6s
+  const t0 = app.time;
+  const dur = 0.6;
+  const id = setInterval(()=> {
+    const dt = app.time - t0;
+    camera.x += (Math.random()-0.5)*6;
+    camera.y += (Math.random()-0.5)*6;
+    if(dt>dur) clearInterval(id);
+  }, 30);
+}});
+
+/* =========================
+   Initial seed: add sample layers
+   ========================= */
+(function seed(){
+  createRectLayer(220,320);
+  createCircleLayer(40);
+  createLineLayer(100,100,200,200);
+  // sample image placeholder (colored)
+  const img = new Image(); img.onload = ()=> addImageLayer(img);
+  // tiny placeholder dataURL
+  const placeholder = document.createElement('canvas'); placeholder.width=240; placeholder.height=360; const pctx=placeholder.getContext('2d');
+  pctx.fillStyle='#ffd9a6'; pctx.fillRect(0,0,240,360); pctx.fillStyle='#e56'; pctx.fillRect(20,20,200,60);
+  img.src = placeholder.toDataURL();
+  refreshLayerList();
+})();
+
+</script>
+</body>
+</html>
