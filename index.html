@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mania 2D — Make your own movement</title>
+  <style>
+    :root{
+      --bg1:#e6f7fb; --bg2:#efe6fb;
+      --accent1:#2f7bd9; --accent2:#8e3ed6; --accent3:#ff8a4c;
+      --glass: rgba(255,255,255,0.55);
+      --card-shadow: 0 8px 24px rgba(37,48,63,0.12);
+      font-family: Inter, system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Segoe UI", Roboto, 'Helvetica Neue', Arial;
+    }
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,var(--bg1),var(--bg2));color:#0d1321}
+    .container{max-width:1100px;margin:40px auto;padding:28px}
+
+    /* Header */
+    header{display:flex;align-items:center;justify-content:space-between}
+    .brand{display:flex;gap:16px;align-items:center}
+    .logo{width:88px;height:88px;display:flex;align-items:center;justify-content:center;border-radius:18px;background:linear-gradient(135deg,var(--accent1),var(--accent2));box-shadow:var(--card-shadow)}
+    .logo img{width:70px;height:auto;border-radius:10px}
+    .brand h1{font-size:20px;margin:0}
+    .brand p{margin:0;color:#233048;opacity:0.8;font-size:13px}
+
+    nav{display:flex;gap:12px;align-items:center}
+    .btn{appearance:none;border:0;padding:10px 16px;border-radius:10px;font-weight:600;cursor:pointer}
+    .btn-ghost{background:transparent}
+    .btn-primary{background:linear-gradient(90deg,var(--accent1),var(--accent2));color:white;box-shadow:0 6px 18px rgba(141,62,214,0.18)}
+
+    /* Hero */
+    .hero{display:grid;grid-template-columns:1fr 420px;gap:28px;align-items:center;margin-top:32px}
+    .card{background:var(--glass);backdrop-filter: blur(6px);padding:28px;border-radius:18px;box-shadow:var(--card-shadow)}
+    .headline{font-size:38px;line-height:1.05;margin:0 0 14px}
+    .lead{color:#16212b;opacity:0.85;margin-bottom:20px}
+    .features{display:flex;gap:12px;flex-wrap:wrap}
+    .feature{background:white;padding:10px 12px;border-radius:12px;min-width:140px;box-shadow:0 6px 18px rgba(18,24,36,0.06);font-size:14px}
+
+    /* Editor preview mock */
+    .mock{width:100%;height:320px;border-radius:12px;background:linear-gradient(135deg,#ffffff, #f6f8ff);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+    .mock .screen{width:92%;height:86%;border-radius:10px;background:linear-gradient(180deg,#eef6ff,#fff);box-shadow:inset 0 1px 0 rgba(255,255,255,0.6);display:flex}
+    .mock .left{width:22%;border-right:1px solid rgba(20,30,50,0.04);padding:10px}
+    .mock .center{flex:1;padding:18px;display:flex;align-items:center;justify-content:center}
+    .mock .right{width:18%;border-left:1px solid rgba(20,30,50,0.04);padding:10px}
+    .kbd{display:inline-block;padding:6px 8px;border-radius:6px;background:#f4f7fb;font-weight:600;font-size:12px}
+
+    /* sections */
+    section {margin-top:28px}
+    .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+    footer{margin-top:40px;color:#233048;opacity:0.8;text-align:center}
+
+    /* responsive */
+    @media (max-width:980px){
+      .hero{grid-template-columns:1fr;}
+      .mock{height:260px}
+      .logo{width:64px;height:64px}
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="brand">
+        <div class="logo">
+          <!-- Replace src with your logo file -->
+          <img src="assets/m2d-logo.png" alt="Mania2D logo" />
+        </div>
+        <div>
+          <h1>Mania 2D</h1>
+          <p>自分だけの動きを作る、Live2D風ブラウザエディタ</p>
+        </div>
+      </div>
+      <nav>
+        <button class="btn btn-ghost">Docs</button>
+        <button class="btn btn-ghost">Pricing</button>
+        <button id="openEditor" class="btn btn-primary">今すぐ使う</button>
+      </nav>
+    </header>
+
+    <main>
+      <div class="hero">
+        <div class="card">
+          <h2 class="headline">好きに動かせ。全部自分で作る Live2D 風エディタ</h2>
+          <p class="lead">Mania 2D は、レイヤー・パラメータ・キーフレーム・物理ノード・表情をすべて自分で定義して作る制作ツールです。ブラウザだけで即開始、書き出しは動画・GIF・PNG・JSON。</p>
+
+          <div style="display:flex;gap:12px;margin-bottom:18px;">
+            <button id="ctaEditor" class="btn btn-primary">今すぐ使う — エディタへ</button>
+            <button class="btn btn-ghost">チュートリアルを見る</button>
+          </div>
+
+          <div class="features">
+            <div class="feature">レイヤー管理（親子/アンカー）</div>
+            <div class="feature">自作パラメータ</div>
+            <div class="feature">キーフレームタイムライン</div>
+            <div class="feature">物理ノード追加</div>
+            <div class="feature">表情プリセット</div>
+            <div class="feature">mp4 / GIF / PNG / JSON 出力</div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:12px;align-items:stretch">
+          <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;">
+            <strong>クイックスタート</strong>
+            <ol style="padding-left:18px;margin:6px 0 0 0">
+              <li>立ち絵PNGを複数アップロード</li>
+              <li>親子関係とアンカーを設定</li>
+              <li>パラメータを追加してスライダー設定</li>
+              <li>タイムラインでモーションを作る</li>
+            </ol>
+          </div>
+
+          <div class="card mock">
+            <div class="screen">
+              <div class="left">
+                <div style="height:10px"></div>
+                <div class="kbd">Layers</div>
+                <div style="height:14px"></div>
+                <div style="height:10px;background:#f6f8ff;border-radius:8px;margin-bottom:8px"></div>
+                <div style="height:10px;background:#f6f8ff;border-radius:8px;margin-bottom:8px"></div>
+                <div style="height:10px;background:#f6f8ff;border-radius:8px;margin-bottom:8px"></div>
+              </div>
+              <div class="center">
+                <div style="width:220px;height:260px;border-radius:8px;background:linear-gradient(180deg,#fff,#eef7ff);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 16px rgba(37,48,63,0.06)">Preview<br><small style="opacity:0.6">(Canvas)</small></div>
+              </div>
+              <div class="right">
+                <div class="kbd">Params</div>
+                <div style="height:14px"></div>
+                <div style="height:10px;background:#f6f8ff;border-radius:8px;margin-bottom:8px"></div>
+                <div style="height:10px;background:#f6f8ff;border-radius:8px;margin-bottom:8px"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <section>
+        <h3>主な機能</h3>
+        <div class="grid3">
+          <div class="card">
+            <h4>レイヤー管理</h4>
+            <p>ドラッグ&ドロップで画像を追加。親子関係とアンカーをGUIで設定できます。</p>
+          </div>
+          <div class="card">
+            <h4>パラメータを自作</h4>
+            <p>スライダーや2Dパラメータを自由に作成して、レイヤーに連動させます。</p>
+          </div>
+          <div class="card">
+            <h4>キーフレームタイムライン</h4>
+            <p>直感的なタイムラインで、イージングつきの補間を作ります。</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h3>出力</h3>
+        <div class="card">
+          <p>制作したモーションは mp4 / webm / gif / png シーケンス / JSON（モデル + モーション）で書き出せます。FFmpeg WASM を使うことでブラウザ内で変換可能です。</p>
+        </div>
+      </section>
+
+      <section>
+        <h3>料金プラン（仮）</h3>
+        <div class="grid3">
+          <div class="card">
+            <strong>Free</strong>
+            <p>基本機能 / PNGシーケンス / JSON出力</p>
+          </div>
+          <div class="card">
+            <strong>Pro</strong>
+            <p>動画出力 / 高解像度 / プラグイン利用</p>
+          </div>
+          <div class="card">
+            <strong>Team</strong>
+            <p>コラボ/バージョン管理 / チーム機能</p>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <footer>
+      <small>© Mania 2D — Built with ❤️ for 夢野</small>
+    </footer>
+  </div>
+
+  <script>
+    // CTA to editor — change to your real editor path
+    function openEditor(){
+      // attempt to open /editor.html in the same host
+      window.location.href = '/editor.html';
+    }
+    document.getElementById('openEditor').addEventListener('click', openEditor);
+    document.getElementById('ctaEditor').addEventListener('click', openEditor);
+  </script>
+</body>
+</html>
