@@ -1,178 +1,296 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Mania 2D — Make your own movement</title>
-  <style>
-    :root{
-      --bg1:#e6f7fb; --bg2:#efe6fb;
-      --accent1:#2f7bd9; --accent2:#8e3ed6; --accent3:#ff8a4c;
-      --glass: rgba(255,255,255,0.55);
-      --card-shadow: 0 8px 24px rgba(37,48,63,0.12);
-      font-family: Inter, system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Segoe UI", Roboto, 'Helvetica Neue', Arial;
-    }
-    html,body{height:100%;margin:0;background:linear-gradient(180deg,var(--bg1),var(--bg2));color:#0d1321}
-    .container{max-width:1100px;margin:40px auto;padding:28px}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ブラウザ動画作成ツール</title>
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --bg: #f3f4f6;
+            --surface: #ffffff;
+            --text: #1f2937;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            background: var(--surface);
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            max-width: 800px;
+            width: 100%;
+        }
+        h1 { margin-top: 0; font-size: 1.5rem; text-align: center; color: var(--primary); }
+        
+        /* Controls */
+        .controls {
+            display: grid;
+            gap: 15px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 20px;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        label { font-weight: bold; font-size: 0.9rem; }
+        input[type="number"], select {
+            padding: 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+        }
+        
+        /* File Input */
+        .file-drop-area {
+            border: 2px dashed #d1d5db;
+            padding: 20px;
+            text-align: center;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .file-drop-area:hover { border-color: var(--primary); background-color: #eef2ff; }
+        
+        /* Buttons */
+        .btn {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 1rem;
+            transition: opacity 0.2s;
+        }
+        .btn:disabled { background-color: #9ca3af; cursor: not-allowed; }
+        .btn:hover:not(:disabled) { opacity: 0.9; }
+        .btn-download { background-color: #10b981; display: none; text-decoration: none; text-align: center; }
 
-    header{display:flex;align-items:center;justify-content:space-between}
-    .brand{display:flex;gap:16px;align-items:center}
-    .logo{width:88px;height:88px;display:flex;align-items:center;justify-content:center;border-radius:18px;background:linear-gradient(135deg,var(--accent1),var(--accent2));box-shadow:var(--card-shadow)}
-    .logo img{width:70px;height:auto;border-radius:10px}
-    .brand h1{font-size:20px;margin:0}
-    .brand p{margin:0;color:#233048;opacity:0.8;font-size:13px}
-
-    nav{display:flex;gap:12px;align-items:center}
-    .btn{appearance:none;border:0;padding:10px 16px;border-radius:10px;font-weight:600;cursor:pointer}
-    .btn-ghost{background:transparent}
-    .btn-primary{background:linear-gradient(90deg,var(--accent1),var(--accent2));color:white;box-shadow:0 6px 18px rgba(141,62,214,0.18)}
-
-    .hero{display:grid;grid-template-columns:1fr 420px;gap:28px;align-items:center;margin-top:32px}
-    .card{background:var(--glass);backdrop-filter: blur(6px);padding:28px;border-radius:18px;box-shadow:var(--card-shadow)}
-    .headline{font-size:38px;line-height:1.05;margin:0 0 14px}
-    .lead{color:#16212b;opacity:0.85;margin-bottom:20px}
-    .features{display:flex;gap:12px;flex-wrap:wrap}
-    .feature{background:white;padding:10px 12px;border-radius:12px;min-width:140px;box-shadow:0 6px 18px rgba(18,24,36,0.06);font-size:14px}
-
-    .mock{width:100%;height:320px;border-radius:12px;background:linear-gradient(135deg,#ffffff, #f6f8ff);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
-    .mock .screen{width:92%;height:86%;border-radius:10px;background:linear-gradient(180deg,#eef6ff,#fff);box-shadow:inset 0 1px 0 rgba(255,255,255,0.6);display:flex}
-    .mock .left{width:22%;border-right:1px solid rgba(20,30,50,0.04);padding:10px}
-    .mock .center{flex:1;padding:18px;display:flex;align-items:center;justify-content:center}
-    .mock .right{width:18%;border-left:1px solid rgba(20,30,50,0.04);padding:10px}
-    .kbd{display:inline-block;padding:6px 8px;border-radius:6px;background:#f4f7fb;font-weight:600;font-size:12px}
-
-    section {margin-top:28px}
-    .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-    footer{margin-top:40px;color:#233048;opacity:0.8;text-align:center}
-
-    @media (max-width:980px){
-      .hero{grid-template-columns:1fr;}
-      .mock{height:260px}
-      .logo{width:64px;height:64px}
-    }
-  </style>
+        /* Preview */
+        .preview-area {
+            margin-top: 20px;
+            text-align: center;
+        }
+        canvas {
+            max-width: 100%;
+            background: #000;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+        .status {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #6b7280;
+            min-height: 1.2em;
+        }
+    </style>
 </head>
 <body>
-  <div class="container">
-    <header>
-      <div class="brand">
-        <div class="logo">
-          <img src="assets/m2d-logo.png" alt="Mania2D logo" />
+
+<div class="container">
+    <h1>📷 画像から動画を作成 (WebM/MP4)</h1>
+
+    <div class="controls">
+        <div class="control-group">
+            <label>1. 画像を選択 (複数可)</label>
+            <input type="file" id="imageInput" accept="image/*" multiple class="file-drop-area">
         </div>
-        <div>
-          <h1>Mania 2D</h1>
-          <p>自分だけの動きを作るブラウザアニメーションエディタ</p>
-        </div>
-      </div>
-      <nav>
-        <button class="btn btn-ghost">Docs</button>
-        <button class="btn btn-ghost">すべて無料</button>
-        <button id="openEditor" class="btn btn-primary">今すぐ使う</button>
-      </nav>
-    </header>
-
-    <main>
-      <div class="hero">
-        <div class="card">
-          <h2 class="headline">完全無料で使える。自由に動きを作れるエディタ</h2>
-          <p class="lead">Mania 2D は、レイヤー・パラメータ・キーフレーム・物理・表情などをすべて自分の好きなように組み上げることができるアニメーション制作ツールです。ブラウザだけで即編集スタート。</p>
-
-          <div style="display:flex;gap:12px;margin-bottom:18px;">
-            <button id="ctaEditor" class="btn btn-primary">今すぐ使う — エディタへ</button>
-            <button class="btn btn-ghost">チュートリアルを見る</button>
-          </div>
-
-          <div class="features">
-            <div class="feature">レイヤー管理</div>
-            <div class="feature">自作パラメータ</div>
-            <div class="feature">キーフレームタイムライン</div>
-            <div class="feature">物理ノード追加</div>
-            <div class="feature">表情プリセット</div>
-            <div class="feature">mp4 / GIF / PNG / JSON 出力</div>
-          </div>
-        </div>
-
-        <div style="display:flex;flex-direction:column;gap:12px;align-items:stretch">
-          <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;">
-            <strong>クイックスタート</strong>
-            <ol style="padding-left:18px;margin:6px 0 0 0">
-              <li>パーツ画像をアップロード</li>
-              <li>親子関係とアンカーを設定</li>
-              <li>パラメータを作成</li>
-              <li>タイムラインでモーションを組む</li>
-            </ol>
-          </div>
-
-          <div class="card mock">
-            <div class="screen">
-              <div class="left">
-                <div style="height:10px"></div>
-                <div class="kbd">Layers</div>
-                <div style="height:14px"></div>
-                <div style="height:10px;background:#f6f8ff;border-radius:8px;margin-bottom:8px"></div>
-                <div style="height:10px;background:#f6f8ff;border-radius:8px;margin-bottom:8px"></div>
-                <div style="height:10px;background:#f6f8ff;border-radius:8px;margin-bottom:8px"></div>
-              </div>
-              <div class="center">
-                <div style="width:220px;height:260px;border-radius:8px;background:linear-gradient(180deg,#fff,#eef7ff);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 16px rgba(37,48,63,0.06)">Preview<br><small style="opacity:0.6">(Canvas)</small></div>
-              </div>
-              <div class="right">
-                <div class="kbd">Params</div>
-                <div style="height:14px"></div>
-                <div style="height:10px;background:#f6f8ff;border-radius:8px;margin-bottom:8px"></div>
-                <div style="height:10px;background:#f6f8ff;border-radius:8px;margin-bottom:8px"></div>
-              </div>
+        
+        <div style="display: flex; gap: 20px;">
+            <div class="control-group" style="flex:1;">
+                <label for="duration">1枚あたりの表示時間 (秒)</label>
+                <input type="number" id="duration" value="2" min="0.5" step="0.1">
             </div>
-          </div>
+            <div class="control-group" style="flex:1;">
+                <label for="resolution">解像度</label>
+                <select id="resolution">
+                    <option value="1280,720">HD (1280x720)</option>
+                    <option value="1920,1080">Full HD (1920x1080)</option>
+                    <option value="1080,1080">Square (1080x1080)</option>
+                </select>
+            </div>
         </div>
-      </div>
 
-      <section>
-        <h3>主な機能</h3>
-        <div class="grid3">
-          <div class="card">
-            <h4>レイヤー管理</h4>
-            <p>ドラッグ&ドロップで画像を追加し、親子関係とアンカーを GUI で設定できます。</p>
-          </div>
-          <div class="card">
-            <h4>パラメータ作成</h4>
-            <p>スライダーや 2D パラメータを自由に作成し、各レイヤーに動きを割り当てられます。</p>
-          </div>
-          <div class="card">
-            <h4>タイムラインアニメーション</h4>
-            <p>キーフレームで直感的にモーション制作。イージングもサポート。</p>
-          </div>
-        </div>
-      </section>
+        <button id="createBtn" class="btn" disabled>動画を作成する</button>
+        <a id="downloadBtn" class="btn btn-download">動画をダウンロード</a>
+    </div>
 
-      <section>
-        <h3>出力</h3>
-        <div class="card">
-          <p>制作したモーションは mp4 / webm / Gif / png シーケンス / JSON で書き出せます。すべてブラウザ内で処理されます。</p>
-        </div>
-      </section>
+    <div class="preview-area">
+        <div class="status" id="statusText">待機中...</div>
+        <canvas id="previewCanvas"></canvas>
+    </div>
+</div>
 
-      <section>
-        <h3>料金プラン</h3>
-        <div class="card" style="text-align:center;padding:24px;">
-          <h2 style="margin:0;">💎 Mania2D は完全無料</h2>
-          <p style="opacity:0.85;margin-top:10px;">すべての機能が無料で使えます。プラグイン追加や高解像度出力も制限なし。</p>
-        </div>
-      </section>
+<script>
+    const imageInput = document.getElementById('imageInput');
+    const createBtn = document.getElementById('createBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const canvas = document.getElementById('previewCanvas');
+    const ctx = canvas.getContext('2d');
+    const statusText = document.getElementById('statusText');
+    const durationInput = document.getElementById('duration');
+    const resolutionSelect = document.getElementById('resolution');
 
-    </main>
+    let loadedImages = [];
 
-    <footer>
-      <small>© Mania 2D — Built with ❤️</small>
-    </footer>
-  </div>
+    // 初期設定
+    resizeCanvas();
 
-  <script>
-    function openEditor(){
-      window.location.href = '/editor.html';
+    // 解像度変更時
+    resolutionSelect.addEventListener('change', resizeCanvas);
+
+    function resizeCanvas() {
+        const [w, h] = resolutionSelect.value.split(',').map(Number);
+        canvas.width = w;
+        canvas.height = h;
+        // プレビュー用に黒塗り
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, w, h);
     }
-    document.getElementById('openEditor').addEventListener('click', openEditor);
-    document.getElementById('ctaEditor').addEventListener('click', openEditor);
-  </script>
+
+    // 画像読み込み処理
+    imageInput.addEventListener('change', async (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+
+        createBtn.disabled = true;
+        downloadBtn.style.display = 'none';
+        loadedImages = [];
+        statusText.textContent = `${files.length}枚の画像を読み込み中...`;
+
+        // 画像をロードして配列に格納
+        const promises = files.map(file => {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = reject;
+                img.src = URL.createObjectURL(file);
+            });
+        });
+
+        try {
+            loadedImages = await Promise.all(promises);
+            statusText.textContent = `読み込み完了 (${loadedImages.length}枚)。「動画を作成する」を押してください。`;
+            createBtn.disabled = false;
+            
+            // 最初の画像を表示
+            if (loadedImages.length > 0) {
+                drawImageContain(loadedImages[0]);
+            }
+        } catch (err) {
+            statusText.textContent = '画像の読み込みに失敗しました。';
+            console.error(err);
+        }
+    });
+
+    // キャンバスに合わせて画像をリサイズして描画（黒帯付き）
+    function drawImageContain(img) {
+        const cw = canvas.width;
+        const ch = canvas.height;
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, cw, ch);
+
+        const scale = Math.min(cw / img.width, ch / img.height);
+        const w = img.width * scale;
+        const h = img.height * scale;
+        const x = (cw - w) / 2;
+        const y = (ch - h) / 2;
+
+        ctx.drawImage(img, x, y, w, h);
+    }
+
+    // 動画作成処理
+    createBtn.addEventListener('click', () => {
+        if (loadedImages.length === 0) return;
+        
+        createBtn.disabled = true;
+        downloadBtn.style.display = 'none';
+        statusText.textContent = '動画を作成中...';
+
+        const stream = canvas.captureStream(30); // 30 FPS
+        const mimeTypes = [
+            'video/webm;codecs=vp9',
+            'video/webm;codecs=vp8',
+            'video/webm'
+        ];
+        
+        let selectedMimeType = 'video/webm';
+        for (let type of mimeTypes) {
+            if (MediaRecorder.isTypeSupported(type)) {
+                selectedMimeType = type;
+                break;
+            }
+        }
+
+        const recorder = new MediaRecorder(stream, {
+            mimeType: selectedMimeType,
+            videoBitsPerSecond: 5000000 // 5Mbps (高画質)
+        });
+
+        const chunks = [];
+        recorder.ondataavailable = (e) => {
+            if (e.data.size > 0) chunks.push(e.data);
+        };
+
+        recorder.onstop = () => {
+            const blob = new Blob(chunks, { type: selectedMimeType });
+            const url = URL.createObjectURL(blob);
+            
+            downloadBtn.href = url;
+            // .webmが標準ですが、ユーザーの利便性のために.mp4と名付けることもあります
+            // ただし、厳密なmp4コンテナではないため、ここでは安全にwebmとします
+            downloadBtn.download = `video_${Date.now()}.webm`; 
+            downloadBtn.textContent = '動画をダウンロード (.webm)';
+            downloadBtn.style.display = 'inline-block';
+            statusText.textContent = '完了しました！';
+            createBtn.disabled = false;
+        };
+
+        recorder.start();
+
+        // アニメーションループ
+        const durationPerSlide = parseFloat(durationInput.value) * 1000;
+        let startTime = null;
+        let imageIndex = 0;
+
+        function animate(timestamp) {
+            if (!startTime) startTime = timestamp;
+            const elapsed = timestamp - startTime;
+            
+            // 現在表示すべき画像のインデックスを計算
+            const currentIndex = Math.floor(elapsed / durationPerSlide);
+
+            if (currentIndex >= loadedImages.length) {
+                recorder.stop();
+                return;
+            }
+
+            // 画像が変わった瞬間だけ再描画（負荷軽減）または常時描画
+            // MediaRecorderのcaptureStreamには定期的な描画が必要な場合があるため
+            // 常に描画し続けるのが安全
+            drawImageContain(loadedImages[currentIndex]);
+
+            // 進捗表示
+            const progress = Math.round(((currentIndex + 1) / loadedImages.length) * 100);
+            statusText.textContent = `レンダリング中... ${progress}%`;
+
+            requestAnimationFrame(animate);
+        }
+
+        requestAnimationFrame(animate);
+    });
+</script>
+
 </body>
 </html>
